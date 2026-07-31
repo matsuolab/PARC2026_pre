@@ -8,3 +8,11 @@ numpy>=1.19
 # 例:
 # torch>=2.0
 # transformers>=4.30
+
+# Pi0 (lerobot) 推論用
+# policy_server.py は siglip_patch.py で lerobot / transformers の内部実装に
+# モンキーパッチを当てているため、バージョンがずれるとパッチが噛み合わなくなる。
+# ローカルで疎通確認したバージョンに固定する。
+torch==2.10.0
+transformers==4.57.6
+lerobot[transformers-dep]==0.4.4
