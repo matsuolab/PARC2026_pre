@@ -265,7 +265,7 @@ def _check_policy_server_source(src: str, report: Report) -> None:
 
 
     try:
-        ast.parse(src)
+        tree = ast.parse(src)
     except SyntaxError as e:
         report.error("policy.syntax",
                      f"policy_server.py に構文エラー: line {e.lineno}: {e.msg}")
@@ -274,6 +274,9 @@ def _check_policy_server_source(src: str, report: Report) -> None:
         report.error("policy.syntax",
                      f"policy_server.py を解析できません（バイナリ/不正な文字の可能性）: {e}")
         return
+
+
+    _check_no_wandb(tree, report)
 
 
     for ep in REQUIRED_ENDPOINTS:
@@ -294,6 +297,50 @@ def _check_policy_server_source(src: str, report: Report) -> None:
                     "'--port' 引数の処理が見当たりません。採点側は --port 8000 を"
                     "付けて起動するため、未対応だと別ポートで起動し health check が"
                     "タイムアウトする恐れがあります")
+
+
+def _check_no_wandb(tree: "ast.AST", report: Report) -> None:
+    """policy_server.py から W&B への参照が無いことを保証する（提出ルール）。
+
+    AST を走査するのは、コメントや文字列リテラルでの誤検知を避けるため。
+    ここで検出されるのは実際に評価される import / 呼び出し / 環境変数代入のみ。
+    """
+    import ast
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "wandb" or alias.name.startswith("wandb."):
+                    report.error("policy.wandb_import",
+                                 f"line {node.lineno}: policy_server.py が wandb を"
+                                 f"import しています。提出物は W&B にアップロード"
+                                 f"してはいけません")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "wandb" or (node.module or "").startswith("wandb."):
+                report.error("policy.wandb_import",
+                             f"line {node.lineno}: policy_server.py が wandb から"
+                             f"import しています。提出物は W&B にアップロードして"
+                             f"はいけません")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            root = func
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id == "wandb":
+                report.error("policy.wandb_call",
+                             f"line {node.lineno}: policy_server.py が wandb を"
+                             f"呼び出しています。提出物は W&B にアップロードして"
+                             f"はいけません")
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Subscript):
+                    key = target.slice
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str) \
+                            and key.value.startswith("WANDB_"):
+                        report.error("policy.wandb_env",
+                                     f"line {node.lineno}: WANDB_ 環境変数への代入が"
+                                     f"あります。提出物は W&B にアップロードしては"
+                                     f"いけません")
 
 
 def _split_option(token: str) -> str:
@@ -398,6 +445,17 @@ def check_requirements(text: str, report: Report) -> None:
             if parsed.url is not None:
                 report.error("req.external_url",
                              f"{ln}行目: direct reference（URL 指定）は禁止です: {s}")
+
+            if parsed.name.lower().replace("_", "-") == "wandb":
+                report.error("req.wandb",
+                             f"{ln}行目: requirements.txt に wandb が含まれています。"
+                             f"提出物は W&B にアップロードしてはいけません: {s}")
+        else:
+            pkg_match = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)", core)
+            if pkg_match and pkg_match.group(1).lower().replace("_", "-") == "wandb":
+                report.error("req.wandb",
+                             f"{ln}行目: requirements.txt に wandb が含まれています。"
+                             f"提出物は W&B にアップロードしてはいけません: {s}")
 
 
 def pip_dry_run(req_path: str | Path, report: Report, timeout: int = 300) -> None:
@@ -549,11 +607,16 @@ def smoke_test(submission_dir: str | Path, report: Report | None = None, *,
 
     log = tempfile.TemporaryFile(mode="w+b")
 
+    # 提出ルール: W&B へのアップロードを禁止。万一 wandb 呼び出しが静的チェックを
+    # すり抜けても、ここでオフライン化して即失敗させる（多層防御）。
+    env = os.environ.copy()
+    env["WANDB_MODE"] = "disabled"
+    env.pop("WANDB_API_KEY", None)
 
     proc = subprocess.Popen(
         [sys.executable, "policy_server.py", "--port", str(port)],
         cwd=str(d), stdout=log, stderr=subprocess.STDOUT,
-        start_new_session=True,
+        start_new_session=True, env=env,
     )
 
     descendants: list = []

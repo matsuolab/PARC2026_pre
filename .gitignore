@@ -7,3 +7,13 @@ assets.zip
 submission/
 submission_template/model_weights/
 .docker_pip_cache/
+
+# --- training/ ---
+# 運用ルール: HF_HOME / HF_LEROBOT_HOME はリポジトリ外に固定すること。
+# データセットは都度ダウンロードするため training/data/ は通常空だが、保険として除外する。
+training/data/
+training/base_models/*
+!training/base_models/README.md
+training/Env/**/weights/
+# メタファイルは追跡する（config.yaml / checkpoints_log.jsonl / results.json /
+# screening.json / git_hash.txt / run_memo.txt / SOURCE.json 等）

@@ -1,0 +1,75 @@
+# Env フォルダ用 config.yaml テンプレート。
+# 新しい実験を始めるときは scripts/save_run.sh がこのファイルをコピーする。
+# 仕様の根拠は DESIGN.md §2 を参照。
+
+# --- 実験の識別 ---
+env_id: "NNN_YYYYMMDD_説明"     # 例: "001_20260801_smolvla_lr3e-4"
+arch: "smolvla"                # "smolvla" | "pi0"（移行期間中は両対応が必要）
+wandb_run_id: null             # W&B の Run ID。Env と W&B Run の紐付けに必須
+wandb_run_url: null            # 例: "https://wandb.ai/<entity>/<project>/runs/<run_id>"
+
+# --- 基盤モデルの固定 ---
+base_model:
+  repo_id: "lerobot/smolvla_libero_plus"
+  revision: "7bb70aa5bc92b82c9239142775d3a173103567ff"
+  local_path: "training/base_models/smolvla_base"
+  checksum: null                # training/base_models/smolvla_base/CHECKSUM.txt と一致すること
+vlm:
+  repo_id: "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
+  local_path: "training/base_models/smolvlm2_processor"
+
+# --- データセットの固定 ---
+dataset:
+  repo_id: "lerobot/libero_plus"
+  revision: "f3f49f426d75030177b18778374005bc12ccd588"
+
+# --- 学習ハイパーパラメータ ---
+train:
+  steps: 3000
+  batch_size: 1
+  learning_rate: 3.0e-4
+  final_learning_rate: 3.0e-5
+  warmup_steps: 100
+  lora_r: 16
+  lora_alpha: 16
+  seed: 42
+
+# --- 評価の設定 ---
+eval:
+  port: 8000                   # Env 毎にずらす（DESIGN.md §7）
+
+  # 候補（マージ前の LoRA）を推論サーバーとして起動するコマンド。
+  # {candidate_dir} と {port} がその都度置換される。
+  server_launch_cmd: >-
+    python training/imitation/serve_candidate.py {candidate_dir}
+    --base-model-dir training/base_models/smolvla_base --port {port}
+
+  seed: 2026                   # 全候補で共通。相対評価の精度確保に必須
+
+  val_loss_interval: 500       # オフライン validation loss の記録間隔
+  task_eval_interval: 1000     # 中間タスク評価の間隔
+
+  # 中間タスク評価（学習中、1000 step 毎）
+  intermediate:
+    n_tasks: 2
+    episodes_per_task: 5
+
+  # 候補保持
+  top_k: 5                     # candidates/ に残す本数（オプションで変更可）
+
+  # 一次選抜（K本の候補をふるい落とす）
+  screening:
+    n_tasks: 10
+    n_viewpoints: 1
+    episodes_per_task: 2       # 計 20 エピソード / 候補
+    prune:
+      enabled: true
+      after_episodes: 5        # 最初の N エピソード時点で判定
+      min_successes: 1         # 成功が min_successes 未満なら打ち切り
+
+  # 本選（フル評価）
+  full:
+    n_tasks: 10
+    n_viewpoints: 3
+    episodes_per_task: 5       # 計 150 エピソード / 候補
+    n_finalists: 2             # 一次選抜の上位何本をフル評価するか
