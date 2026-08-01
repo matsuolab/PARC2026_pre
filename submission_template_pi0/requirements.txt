@@ -1,0 +1,42 @@
+# ポリシーサーバーの依存（必須、削除しないでください）
+fastapi>=0.68
+uvicorn>=0.15
+msgpack>=1.0
+numpy>=1.19
+
+# 以下に自分のモデルに必要なライブラリを追加してください
+# 例:
+# torch>=2.0
+# transformers>=4.30
+
+# Pi0 (lerobot) 推論用
+# policy_server.py は siglip_patch.py で lerobot / transformers の内部実装に
+# モンキーパッチを当てているため、バージョンがずれるとパッチが噛み合わなくなる。
+# ローカルで疎通確認したバージョンに固定する。
+torch==2.10.0
+transformers==4.57.6
+
+# lerobot パッケージ本体はここに書かない。lerobot 0.4.4 はベース依存として
+# pynput（Linux では evdev も要求）を含み、evdev はプリビルド wheel が無く
+# ソースビルド時に Python.h を要求する。採点環境（Docker）に python3-dev が
+# 入っていない場合にビルド失敗する（Dockerfile は変更できないためこちらで回避）。
+# 実際に import しているのは lerobot パッケージのうち Pi0 推論に必要な部分
+# （pynput には一切到達しない）なので、その部分のソースだけを lerobot/ フォルダに
+# 直接同梱し、pynput/evdev を含まない依存だけをここに列挙する。
+# バージョンは lerobot 0.4.4 の pyproject.toml のベース依存（pynput を除く）に合わせている。
+datasets>=4.0.0,<5.0.0
+diffusers>=0.27.2,<0.36.0
+huggingface-hub[cli,hf-transfer]>=0.34.2,<0.36.0
+accelerate>=1.10.0,<2.0.0
+setuptools>=71.0.0,<81.0.0
+einops>=0.8.0,<0.9.0
+opencv-python-headless>=4.9.0,<4.13.0
+av>=15.0.0,<16.0.0
+jsonlines>=4.0.0,<5.0.0
+packaging>=24.2,<26.0
+pyserial>=3.5,<4.0
+torchvision>=0.21.0,<0.26.0
+draccus==0.10.0
+deepdiff>=7.0.1,<9.0.0
+imageio[ffmpeg]>=2.34.0,<3.0.0
+termcolor>=2.4.0,<4.0.0

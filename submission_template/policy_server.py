@@ -13,7 +13,6 @@
 """
 
 import argparse
-import os
 from abc import ABC, abstractmethod
 
 import msgpack
@@ -64,161 +63,33 @@ class BasePolicy(ABC):
 # ============================================================
 
 
-_MODEL_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "model_weights",
-    "pi0_libero_finetuned_v044",
-)
-# PaliGemma のトークナイザは本来 "google/paligemma-3b-pt-224" から取得するが、
-# 同リポジトリは gated（要認証）かつ採点環境は外部通信を遮断するため、
-# 同一トークナイザを含む公開リポジトリから取得したファイルをローカルに同梱している。
-_TOKENIZER_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "model_weights",
-    "paligemma_tokenizer",
-)
-
-
-def _quat2axisangle(quat: np.ndarray) -> np.ndarray:
-    """クォータニオン (x, y, z, w) を axis-angle（回転ベクトル）へ変換する。
-
-    robosuite の `transform_utils.quat2axisangle` と同一実装
-    （lerobot/policies/xvla/utils.py にも同じものがある）。
-    角度を 2*acos(w) で求めるため範囲は [0, 2pi] であり、
-    ノルムを [0, pi] に畳み込む scipy の `Rotation.as_rotvec()` とは
-    w < 0 の場合に結果が異なる。学習データ（HuggingFaceVLA/libero）の
-    observation.state はこちらの規約で作られている（統計上、回転成分の
-    最大値が 3.67 > pi となっており as_rotvec では表現できない）。
-    """
-    quat = np.asarray(quat, dtype=np.float64)
-    w = float(np.clip(quat[3], -1.0, 1.0))
-
-    den = np.sqrt(1.0 - w * w)
-    if np.isclose(den, 0.0):
-        # 回転がほぼゼロ
-        return np.zeros(3, dtype=np.float32)
-
-    return (quat[:3] * 2.0 * np.arccos(w) / den).astype(np.float32)
-
-
 class MyPolicy(BasePolicy):
-    """Pi0（lerobot/pi0_libero_finetuned_v044）を使って推論するポリシー。
+    """自分のポリシーをここに実装する。
 
-    LIBERO 向けに fine-tune 済みの Pi0 チェックポイントをロードし、
-    観測を lerobot の入力形式（observation.images.*, observation.state）に
-    変換して推論する。action チャンクのキャッシュは policy.reset() が管理する。
+    例: チェックポイントをロードして推論する場合
+        def __init__(self):
+            self.model = torch.load("model_weights/checkpoint.pth")
+            self.model.eval()
+
+        def get_action(self, obs):
+            image = obs["agentview_image"]
+            # ... 前処理・推論 ...
+            return action
     """
 
     def __init__(self):
-        import torch
-
-        from siglip_patch import apply_pi0_inference_patches, apply_siglip_patch
-
-        # lerobot の Pi0 実装が要求する transformers パッチ（本来は GitHub の特定ブランチ
-        # からの導入が必須）を、外部ソースに依存せずローカルで再現する。詳細は
-        # siglip_patch.py のモジュール docstring を参照。
-        apply_siglip_patch()
-        # lerobot 0.4.4 の PI0Pytorch.denoise_step にある推論時バグ
-        # （dtype 不一致・KV キャッシュ汚染）の修正。
-        apply_pi0_inference_patches()
-
-        from lerobot.configs.policies import PreTrainedConfig
-        from lerobot.policies.pi0.modeling_pi0 import PI0Policy
-        from lerobot.processor import PolicyProcessorPipeline
-        from lerobot.processor.converters import (
-            batch_to_transition,
-            policy_action_to_transition,
-            transition_to_batch,
-            transition_to_policy_action,
-        )
-        from lerobot.utils.constants import (
-            POLICY_POSTPROCESSOR_DEFAULT_NAME,
-            POLICY_PREPROCESSOR_DEFAULT_NAME,
-        )
-
-        self.torch = torch
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        config = PreTrainedConfig.from_pretrained(_MODEL_DIR)
-        config.device = str(self.device)
-        # 学習時用の torch.compile(mode="max-autotune") は推論単発呼び出しでは不要かつ
-        # 単発呼び出しの動的形状でトレースエラーを起こすため無効化する。
-        # config.compile_model=False の指定だけでは、内部で保持された古い config
-        # 参照が使われる場合があるため、torch.compile 自体を一時的に恒等関数へ
-        # 差し替えて確実に無効化する。
-        config.compile_model = False
-        _original_torch_compile = torch.compile
-        torch.compile = lambda fn, *args, **kwargs: fn
-        try:
-            self.policy = PI0Policy.from_pretrained(_MODEL_DIR, config=config)
-        finally:
-            torch.compile = _original_torch_compile
-        self.policy.to(self.device)
-        self.policy.eval()
-
-        # lerobot.policies.factory.make_pre_post_processors() を使わず、
-        # ここで直接同じ処理を呼ぶ。factory 経由だと（pretrained_path 指定時は
-        # 使わない）他の全ポリシー種別の config を無条件 import してしまい、
-        # gymnasium 等 Pi0 推論に不要な重い依存まで引き込むため。
-        self.preprocessor = PolicyProcessorPipeline.from_pretrained(
-            pretrained_model_name_or_path=_MODEL_DIR,
-            config_filename=f"{POLICY_PREPROCESSOR_DEFAULT_NAME}.json",
-            overrides={"tokenizer_processor": {"tokenizer_name": _TOKENIZER_DIR}},
-            to_transition=batch_to_transition,
-            to_output=transition_to_batch,
-        )
-        self.postprocessor = PolicyProcessorPipeline.from_pretrained(
-            pretrained_model_name_or_path=_MODEL_DIR,
-            config_filename=f"{POLICY_POSTPROCESSOR_DEFAULT_NAME}.json",
-            overrides={},
-            to_transition=policy_action_to_transition,
-            to_output=transition_to_policy_action,
-        )
-
-        self.instruction = ""
-        self.policy.reset()
+        # TODO: モデルのロード
+        pass
 
     def get_action(self, obs: dict[str, np.ndarray]) -> np.ndarray:
-        from lerobot.policies.utils import prepare_observation_for_inference
-
-        # 学習データ（HuggingFaceVLA/libero）のカメラ向き規約に合わせる。
-        # lerobot の LiberoProcessorStep（lerobot/policies/xvla/processor_xvla.py）が
-        # 生の robosuite 観測に対して行っているのと同じ変換:
-        # メインカメラのみ H/W 両方を反転（180度回転）し、手首カメラは反転しない。
-        image = np.ascontiguousarray(obs["agentview_image"][::-1, ::-1])
-        image2 = np.ascontiguousarray(obs["robot0_eye_in_hand_image"])
-
-        eef_pos = np.asarray(obs["robot0_eef_pos"], dtype=np.float32)
-        eef_quat = np.asarray(obs["robot0_eef_quat"], dtype=np.float32)  # (x, y, z, w)
-        eef_axis_angle = _quat2axisangle(eef_quat)
-        gripper_qpos = np.asarray(obs["robot0_gripper_qpos"], dtype=np.float32)
-        state = np.concatenate([eef_pos, eef_axis_angle, gripper_qpos]).astype(np.float32)
-
-        # このモデルの config は empty_camera_0 を入力特徴に含むが、意図的に渡さない。
-        # lerobot 側（PI0Policy._preprocess_images）はバッチに無いカメラを
-        # 「-1 で埋めた画像 + マスク False」として自前で生成する。学習時もこの扱いなので、
-        # ここで零画像を明示的に渡すとマスクが True になり、無効な 256 トークンが
-        # 有効扱いで attention に混入してしまう（学習時と不一致になる）。
-        raw_obs = {
-            "observation.images.image": image,
-            "observation.images.image2": image2,
-            "observation.state": state,
-        }
-
-        with self.torch.inference_mode():
-            batch = prepare_observation_for_inference(
-                raw_obs, self.device, task=self.instruction,
-            )
-            batch = self.preprocessor(batch)
-            action = self.policy.select_action(batch)
-            action = self.postprocessor(action)
-
-        return action.squeeze(0).to("cpu").numpy().astype(np.float32)
+        # TODO: 推論処理を実装
+        # 以下はランダムポリシー（動作確認用）
+        return np.random.uniform(-1, 1, size=7).astype(np.float32)
 
     def reset(self, instruction: str = "") -> None:
+        # TODO: 内部状態のリセット（action chunking のキャッシュ等）
         # instruction にはタスクの言語指示が渡される
         self.instruction = instruction
-        self.policy.reset()
 
 
 # ============================================================
