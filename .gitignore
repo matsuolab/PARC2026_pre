@@ -6,3 +6,4 @@ LIBERO-plus/
 assets.zip
 submission/
 submission_template/model_weights/
+.docker_pip_cache/
