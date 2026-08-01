@@ -123,8 +123,18 @@ class MyPolicy(BasePolicy):
         apply_pi0_inference_patches()
 
         from lerobot.configs.policies import PreTrainedConfig
-        from lerobot.policies.factory import make_pre_post_processors
         from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+        from lerobot.processor import PolicyProcessorPipeline
+        from lerobot.processor.converters import (
+            batch_to_transition,
+            policy_action_to_transition,
+            transition_to_batch,
+            transition_to_policy_action,
+        )
+        from lerobot.utils.constants import (
+            POLICY_POSTPROCESSOR_DEFAULT_NAME,
+            POLICY_PREPROCESSOR_DEFAULT_NAME,
+        )
 
         self.torch = torch
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -146,12 +156,23 @@ class MyPolicy(BasePolicy):
         self.policy.to(self.device)
         self.policy.eval()
 
-        self.preprocessor, self.postprocessor = make_pre_post_processors(
-            self.policy.config,
-            pretrained_path=_MODEL_DIR,
-            preprocessor_overrides={
-                "tokenizer_processor": {"tokenizer_name": _TOKENIZER_DIR},
-            },
+        # lerobot.policies.factory.make_pre_post_processors() を使わず、
+        # ここで直接同じ処理を呼ぶ。factory 経由だと（pretrained_path 指定時は
+        # 使わない）他の全ポリシー種別の config を無条件 import してしまい、
+        # gymnasium 等 Pi0 推論に不要な重い依存まで引き込むため。
+        self.preprocessor = PolicyProcessorPipeline.from_pretrained(
+            pretrained_model_name_or_path=_MODEL_DIR,
+            config_filename=f"{POLICY_PREPROCESSOR_DEFAULT_NAME}.json",
+            overrides={"tokenizer_processor": {"tokenizer_name": _TOKENIZER_DIR}},
+            to_transition=batch_to_transition,
+            to_output=transition_to_batch,
+        )
+        self.postprocessor = PolicyProcessorPipeline.from_pretrained(
+            pretrained_model_name_or_path=_MODEL_DIR,
+            config_filename=f"{POLICY_POSTPROCESSOR_DEFAULT_NAME}.json",
+            overrides={},
+            to_transition=policy_action_to_transition,
+            to_output=transition_to_policy_action,
         )
 
         self.instruction = ""
