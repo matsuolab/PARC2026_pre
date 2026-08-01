@@ -12,7 +12,8 @@ submission_template_pi0/model_weights/
 # --- training/ ---
 # 運用ルール: HF_HOME / HF_LEROBOT_HOME はリポジトリ外に固定すること。
 # データセットは都度ダウンロードするため training/data/ は通常空だが、保険として除外する。
-training/data/
+training/data/*
+!training/data/task_suite_map.csv
 training/base_models/*
 !training/base_models/README.md
 training/Env/**/weights/
