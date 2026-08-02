@@ -2,7 +2,28 @@
 
 | ファイル | 内容 |
 |---|---|
-| [smolvla_libero_spatial_lora.ipynb](smolvla_libero_spatial_lora.ipynb) | SmolVLA を LIBERO-plus Spatial で LoRA 追加学習する Google Colab ノートブック |
+| [smolvla_libero_plus_track1_mix_lora.ipynb](smolvla_libero_plus_track1_mix_lora.ipynb) | **推奨** Track1 寄りの spatial/object/goal 混成 LoRA |
+| [smolvla_libero_spatial_lora.ipynb](smolvla_libero_spatial_lora.ipynb) | Spatial 10 タスクのみ（初期ベースライン。ローカル Track1 では 0%） |
+
+## smolvla_libero_plus_track1_mix_lora.ipynb（推奨）
+
+`lerobot/smolvla_libero_plus` を初期重みとし、公開 Track1 例に近い 4 タスク
+（drawer / tomato sauce / milk / bowl→stove）と、同スイートの近傍 6 タスクで
+LoRA 追加学習する（計 10 × 5 ep、5,000 steps）。
+
+本番タスクは非公開のため、公開 4 タスクだけに過適合しないよう多様化している。
+
+### 使い方（Colab）
+
+1. GitHub URL から開く（ファイル欄ダブルクリック不可）  
+   `https://github.com/yohei1126/PARC2026_pre/blob/main/examples/smolvla_libero_plus_track1_mix_lora.ipynb`
+2. ランタイムを GPU（T4）に変更
+3. §1〜§9 を実行（マージ zip まで）。§10〜§13 のノート内 Spatial 評価は任意・スキップ可
+4. ダウンロードした zip を解凍し  
+   `submission_template/model_weights/smolvla_libero_plus_track1_mix_lora_merged/` へ配置
+5. ローカルで `PARC_MODEL_DIRNAME=smolvla_libero_plus_track1_mix_lora_merged` を付けて eval
+
+想定所要: T4 でおおよそ 45〜90 分（5,000 steps）。
 
 ## smolvla_libero_spatial_lora.ipynb
 
