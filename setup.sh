@@ -143,9 +143,20 @@ cat > env.sh <<EOF
 source "$ROOT/venv/bin/activate"
 export PYTHONPATH="$ROOT/LIBERO-plus:$ROOT:$ROOT/compe"
 export LIBERO_ROOT="$ROOT/LIBERO-plus"
+# Homebrew ImageMagick → Python wand (MagickWand)
+if [ -d /opt/homebrew/opt/imagemagick ]; then
+  export MAGICK_HOME="/opt/homebrew/opt/imagemagick"
+elif command -v brew >/dev/null 2>&1 && brew --prefix imagemagick >/dev/null 2>&1; then
+  export MAGICK_HOME="\$(brew --prefix imagemagick)"
+fi
+if [ -n "\${MAGICK_HOME:-}" ]; then
+  export DYLD_FALLBACK_LIBRARY_PATH="\${MAGICK_HOME}/lib\${DYLD_FALLBACK_LIBRARY_PATH:+:\$DYLD_FALLBACK_LIBRARY_PATH}"
+fi
 EOF
 
 echo "[setup] 動作確認（suite 登録）"
+# shellcheck disable=SC1091
+source env.sh
 PYTHONPATH="$ROOT/LIBERO-plus:$ROOT:$ROOT/compe" \
     python -c "import libero.libero.benchmark; from compe.t1 import register_t1; register_t1(); print('suite 登録 OK')"
 
