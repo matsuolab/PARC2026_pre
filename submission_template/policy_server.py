@@ -73,18 +73,24 @@ class MyPolicy(BasePolicy):
     IMAGE_SIZE = 256  # 学習時の入力解像度
 
     def __init__(self):
+        import os
+
         import torch
         from lerobot.policies.factory import make_pre_post_processors
         from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
 
         self._torch = torch
         weights_root = Path(__file__).resolve().parent / "model_weights"
-        model_dir = weights_root / self.MODEL_DIRNAME
+        # A/B 用: PARC_MODEL_DIRNAME=smolvla_libero_plus_base など
+        dirname = os.environ.get("PARC_MODEL_DIRNAME", self.MODEL_DIRNAME)
+        model_dir = weights_root / dirname
         if not model_dir.is_dir():
             raise FileNotFoundError(
                 f"モデルディレクトリがありません: {model_dir}\n"
                 "Colab のマージ済み重みをここに配置してください。"
+                f"（PARC_MODEL_DIRNAME={dirname}）"
             )
+        print(f"[MyPolicy] loading {model_dir}")
 
         if torch.cuda.is_available():
             device = torch.device("cuda")
