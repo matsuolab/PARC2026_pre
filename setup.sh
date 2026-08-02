@@ -139,19 +139,28 @@ datasets: $ROOT/LIBERO-plus/libero/libero/datasets
 assets: $ROOT/LIBERO/libero/libero/assets
 EOF
 
-cat > env.sh <<EOF
-source "$ROOT/venv/bin/activate"
-export PYTHONPATH="$ROOT/LIBERO-plus:$ROOT:$ROOT/compe"
-export LIBERO_ROOT="$ROOT/LIBERO-plus"
+# Absolute paths are resolved at `source` time from this file's location (bash/zsh).
+cat > env.sh <<'EOF'
+_src="${BASH_SOURCE[0]:-}"
+if [ -z "$_src" ] && [ -n "${ZSH_VERSION:-}" ]; then
+  _src="${(%):-%x}"
+fi
+_PARC_ROOT="$(CDPATH= cd -- "$(dirname -- "$_src")" && pwd)"
+unset _src
+# shellcheck disable=SC1091
+source "$_PARC_ROOT/venv/bin/activate"
+export PYTHONPATH="$_PARC_ROOT/LIBERO-plus:$_PARC_ROOT:$_PARC_ROOT/compe"
+export LIBERO_ROOT="$_PARC_ROOT/LIBERO-plus"
 # Homebrew ImageMagick → Python wand (MagickWand)
 if [ -d /opt/homebrew/opt/imagemagick ]; then
   export MAGICK_HOME="/opt/homebrew/opt/imagemagick"
 elif command -v brew >/dev/null 2>&1 && brew --prefix imagemagick >/dev/null 2>&1; then
-  export MAGICK_HOME="\$(brew --prefix imagemagick)"
+  export MAGICK_HOME="$(brew --prefix imagemagick)"
 fi
-if [ -n "\${MAGICK_HOME:-}" ]; then
-  export DYLD_FALLBACK_LIBRARY_PATH="\${MAGICK_HOME}/lib\${DYLD_FALLBACK_LIBRARY_PATH:+:\$DYLD_FALLBACK_LIBRARY_PATH}"
+if [ -n "${MAGICK_HOME:-}" ]; then
+  export DYLD_FALLBACK_LIBRARY_PATH="${MAGICK_HOME}/lib${DYLD_FALLBACK_LIBRARY_PATH:+:$DYLD_FALLBACK_LIBRARY_PATH}"
 fi
+unset _PARC_ROOT
 EOF
 
 echo "[setup] 動作確認（suite 登録）"
