@@ -119,6 +119,14 @@ class MyPolicy(BasePolicy):
             preprocessor_overrides=preprocessor_overrides,
         )
         self.instruction = ""
+        # A/B: PARC_NO_FLIP=1 で 180° flip を無効化（既定は LIBERO 慣習どおり flip）
+        self.flip_image = os.environ.get("PARC_NO_FLIP", "").strip() not in (
+            "1",
+            "true",
+            "True",
+            "yes",
+        )
+        print(f"[MyPolicy] flip_image={self.flip_image}")
 
     @staticmethod
     def _quat2axisangle(quat):
@@ -132,7 +140,8 @@ class MyPolicy(BasePolicy):
     def _to_chw(self, img_hwc: np.ndarray):
         torch = self._torch
         # LIBERO 慣習: 180° flip → CHW → [0, 1]
-        img = np.ascontiguousarray(img_hwc[::-1, ::-1])
+        img = img_hwc[::-1, ::-1] if self.flip_image else img_hwc
+        img = np.ascontiguousarray(img)
         t = torch.from_numpy(img).permute(2, 0, 1).float().div_(255.0)
         # 学習は 256x256。競技観測は 128x128 なので揃える
         if t.shape[-2] != self.IMAGE_SIZE or t.shape[-1] != self.IMAGE_SIZE:
