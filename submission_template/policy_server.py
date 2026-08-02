@@ -5,15 +5,18 @@
 それ以外のコード（サーバー部分、シリアライゼーション）は変更不可です。
 
 ローカルテスト:
-    pip install -r requirements.txt
-    python policy_server.py                  # サーバー起動（port 8000）
+    # 学習時と同じ lerobot==0.6.0 が必要（Python >= 3.12）
+    #   uv venv policy_venv --python 3.12 --seed
+    #   ./policy_venv/bin/python -m pip install -r requirements.txt
+    ./policy_venv/bin/python submission_template/policy_server.py
 
-    # 別ターミナルで評価実行
+    # 別ターミナルで評価実行（PARC2026_pre の env.sh / venv）
     python -m pipeline --server-url http://localhost:8000 --dry-run
 """
 
 import argparse
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import msgpack
 import numpy as np
@@ -64,32 +67,107 @@ class BasePolicy(ABC):
 
 
 class MyPolicy(BasePolicy):
-    """自分のポリシーをここに実装する。
+    """SmolVLA（Spatial LoRA マージ済み）を LeRobot 経由で推論する。"""
 
-    例: チェックポイントをロードして推論する場合
-        def __init__(self):
-            self.model = torch.load("model_weights/checkpoint.pth")
-            self.model.eval()
-
-        def get_action(self, obs):
-            image = obs["agentview_image"]
-            # ... 前処理・推論 ...
-            return action
-    """
+    MODEL_DIRNAME = "smolvla_libero_plus_spatial_lora_merged"
+    IMAGE_SIZE = 256  # 学習時の入力解像度
 
     def __init__(self):
-        # TODO: モデルのロード
-        pass
+        import torch
+        from lerobot.policies.factory import make_pre_post_processors
+        from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+
+        self._torch = torch
+        weights_root = Path(__file__).resolve().parent / "model_weights"
+        model_dir = weights_root / self.MODEL_DIRNAME
+        if not model_dir.is_dir():
+            raise FileNotFoundError(
+                f"モデルディレクトリがありません: {model_dir}\n"
+                "Colab のマージ済み重みをここに配置してください。"
+            )
+
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+        self.device = device
+
+        # 評価中はネット不可 → ローカル tokenizer があれば優先
+        tokenizer_dir = weights_root / "smolvlm_tokenizer"
+        preprocessor_overrides: dict = {
+            "device_processor": {"device": str(device)},
+        }
+        if tokenizer_dir.is_dir():
+            preprocessor_overrides["tokenizer_processor"] = {
+                "tokenizer_name": str(tokenizer_dir),
+            }
+
+        self.policy = SmolVLAPolicy.from_pretrained(model_dir)
+        self.policy.to(device)
+        self.policy.eval()
+        self.preprocessor, self.postprocessor = make_pre_post_processors(
+            self.policy.config,
+            pretrained_path=str(model_dir),
+            preprocessor_overrides=preprocessor_overrides,
+        )
+        self.instruction = ""
+
+    @staticmethod
+    def _quat2axisangle(quat):
+        """quat (4,) = (x, y, z, w) → axis-angle (3,)"""
+        w = quat[3].clamp(-1.0, 1.0)
+        den = (1.0 - w * w).clamp(min=0.0).sqrt()
+        if den < 1e-10:
+            return quat.new_zeros(3)
+        return (quat[:3] / den * (2.0 * w.acos())).float()
+
+    def _to_chw(self, img_hwc: np.ndarray):
+        torch = self._torch
+        # LIBERO 慣習: 180° flip → CHW → [0, 1]
+        img = np.ascontiguousarray(img_hwc[::-1, ::-1])
+        t = torch.from_numpy(img).permute(2, 0, 1).float().div_(255.0)
+        # 学習は 256x256。競技観測は 128x128 なので揃える
+        if t.shape[-2] != self.IMAGE_SIZE or t.shape[-1] != self.IMAGE_SIZE:
+            t = torch.nn.functional.interpolate(
+                t.unsqueeze(0),
+                size=(self.IMAGE_SIZE, self.IMAGE_SIZE),
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(0)
+        return t
+
+    def _build_observation(self, obs: dict[str, np.ndarray]) -> dict:
+        torch = self._torch
+        eef_pos = torch.as_tensor(obs["robot0_eef_pos"], dtype=torch.float32)
+        eef_quat = torch.as_tensor(obs["robot0_eef_quat"], dtype=torch.float32)
+        gripper = torch.as_tensor(obs["robot0_gripper_qpos"], dtype=torch.float32)
+        state = torch.cat(
+            [eef_pos, self._quat2axisangle(eef_quat), gripper]
+        )  # (8,)
+        return {
+            "observation.state": state,
+            "observation.images.front": self._to_chw(obs["agentview_image"]),
+            "observation.images.wrist": self._to_chw(
+                obs["robot0_eye_in_hand_image"]
+            ),
+            "task": self.instruction,
+        }
 
     def get_action(self, obs: dict[str, np.ndarray]) -> np.ndarray:
-        # TODO: 推論処理を実装
-        # 以下はランダムポリシー（動作確認用）
-        return np.random.uniform(-1, 1, size=7).astype(np.float32)
+        torch = self._torch
+        batch = self.preprocessor(self._build_observation(obs))
+        with torch.inference_mode():
+            action = self.policy.select_action(batch)
+        action = self.postprocessor(action)
+        return (
+            action.squeeze(0).detach().cpu().numpy().astype(np.float32)
+        )
 
     def reset(self, instruction: str = "") -> None:
-        # TODO: 内部状態のリセット（action chunking のキャッシュ等）
-        # instruction にはタスクの言語指示が渡される
-        self.instruction = instruction
+        self.instruction = instruction or ""
+        self.policy.reset()
 
 
 # ============================================================

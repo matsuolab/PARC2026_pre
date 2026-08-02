@@ -2,5 +2,14 @@ __pycache__/
 *.pyc
 results/
 venv/
+policy_venv/
 LIBERO-plus/
 assets.zip
+submission*.zip
+env.sh
+submission_template/model_weights/smolvla_libero_plus_spatial_lora_merged
+submission_template/model_weights/smolvla_libero_plus_spatial_lora_merged.zip
+submission_template/model_weights/smolvla_libero_plus_track1_mix_lora_merged/
+submission_template/model_weights/smolvla_libero_plus_track1_mix_lora_merged.zip
+submission_template/model_weights/smolvla_libero_plus_base/
+submission_template/model_weights/smolvlm_tokenizer/

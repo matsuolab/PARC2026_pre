@@ -4,7 +4,6 @@ uvicorn>=0.15
 msgpack>=1.0
 numpy>=1.19
 
-# 以下に自分のモデルに必要なライブラリを追加してください
-# 例:
-# torch>=2.0
-# transformers>=4.30
+# SmolVLA（Colab ノートと同じ系列。Python >= 3.12 が必要）
+torch>=2.7,<2.12
+lerobot[smolvla]==0.6.0
