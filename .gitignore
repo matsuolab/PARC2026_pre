@@ -4,3 +4,5 @@ results/
 venv/
 LIBERO-plus/
 assets.zip
+submission*.zip
+env.sh

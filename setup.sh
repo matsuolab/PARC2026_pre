@@ -17,17 +17,67 @@ ROOT="$PWD"
 PY="${PYTHON:-python3.10}"
 
 echo "[setup] 1/5 venv + 依存"
-if [ ! -d venv ]; then
-    "$PY" -m venv venv
+
+# 壊れた Python（pkgutil 欠落など）や、mise の別版 pip が混ざるのを防ぐ
+if ! "$PY" -c "import pkgutil" 2>/dev/null; then
+    echo "error: '$PY' の標準ライブラリが壊れています（pkgutil が無い）。" >&2
+    echo "  mise 利用時は python 3.10.20 以上を使い、壊れた 3.10.18 を避けること:" >&2
+    echo "    mise install python@3.10.20 && mise use python@3.10.20" >&2
+    echo "    rm -rf venv && uv venv venv --python 3.10.20" >&2
+    echo "    PYTHON=$PWD/venv/bin/python bash setup.sh" >&2
+    exit 1
 fi
+
+if [ "${FORCE_RECREATE_VENV:-}" = "1" ] && [ -d venv ]; then
+    echo "[setup]   FORCE_RECREATE_VENV=1 → venv を削除して作り直します"
+    rm -rf venv
+fi
+
+if [ ! -d venv ]; then
+    if command -v uv >/dev/null 2>&1; then
+        uv venv venv --python "$PY" --seed
+    else
+        "$PY" -m venv venv
+    fi
+fi
+
 # shellcheck disable=SC1091
 source venv/bin/activate
-pip install --upgrade pip setuptools wheel -q
+
+# activate 後も PATH 汚染で外側の pip が使われないよう、必ず venv の python -m pip
+VENV_PY="$ROOT/venv/bin/python"
+if [ "$(command -v python)" != "$VENV_PY" ] && [ ! -x "$VENV_PY" ]; then
+    echo "error: venv の python が見つかりません: $VENV_PY" >&2
+    exit 1
+fi
+if ! "$VENV_PY" -c "import pkgutil" 2>/dev/null; then
+    echo "error: venv の Python が壊れています。次で作り直してください:" >&2
+    echo "  rm -rf venv && FORCE_RECREATE_VENV=1 bash setup.sh" >&2
+    exit 1
+fi
+
+echo "[setup]   python=$("$VENV_PY" -V 2>&1) ($VENV_PY)"
+if ! "$VENV_PY" -m pip --version >/dev/null 2>&1; then
+    if command -v uv >/dev/null 2>&1; then
+        echo "[setup]   pip が無いため uv で seed します"
+        uv pip install --python "$VENV_PY" pip setuptools wheel
+    else
+        echo "error: venv に pip がありません。uv で作り直してください:" >&2
+        echo "  rm -rf venv && uv venv venv --python 3.10.20 --seed" >&2
+        exit 1
+    fi
+fi
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel -q
 # GPU で推論する提出物を作る場合も、評価環境自体は CPU torch で足りる
-pip install -q --timeout 120 --retries 10 \
-    "torch==2.11.0+cpu" --index-url https://download.pytorch.org/whl/cpu \
-    --extra-index-url https://pypi.org/simple
-pip install -q --timeout 120 \
+# Linux 本番相当は +cpu ホイール。macOS は PyPI の通常ビルド（+cpu は提供されない）
+if [ "$(uname -s)" = "Darwin" ]; then
+    "$VENV_PY" -m pip install -q --timeout 120 --retries 10 "torch==2.11.0"
+else
+    "$VENV_PY" -m pip install -q --timeout 120 --retries 10 \
+        "torch==2.11.0+cpu" --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url https://pypi.org/simple
+fi
+"$VENV_PY" -m pip install -q --timeout 120 \
     mujoco==3.7.0 robosuite==1.4.0 numpy==1.26.4 "gym==0.25.2" bddl==3.6.0 \
     cloudpickle==3.1.2 easydict==1.13 hydra-core==1.3.2 einops==0.8.2 \
     opencv-python-headless==4.11.0.86 \
@@ -44,8 +94,20 @@ fi
 
 echo "[setup] 3/5 LIBERO-plus パッチ"
 touch LIBERO-plus/libero/__init__.py LIBERO-plus/libero/libero/__init__.py
-sed -i 's/torch.load(init_states_path)/torch.load(init_states_path, weights_only=False)/' \
-    LIBERO-plus/libero/libero/benchmark/__init__.py || true
+# GNU sed: sed -i 's/.../' file  /  BSD sed (macOS): sed -i '' 's/.../' file
+PATCH_FILE="LIBERO-plus/libero/libero/benchmark/__init__.py"
+if [ "$(uname -s)" = "Darwin" ]; then
+    sed -i '' 's/torch.load(init_states_path)/torch.load(init_states_path, weights_only=False)/' \
+        "$PATCH_FILE" || true
+else
+    sed -i 's/torch.load(init_states_path)/torch.load(init_states_path, weights_only=False)/' \
+        "$PATCH_FILE" || true
+fi
+if grep -q "weights_only=False" "$PATCH_FILE" 2>/dev/null; then
+    echo "[setup]   torch.load weights_only=False パッチ OK"
+else
+    echo "[setup]   WARN: weights_only パッチが当たっていない可能性あり（後で確認）"
+fi
 
 echo "[setup] 4/5 アセット"
 ASSETS="LIBERO-plus/libero/libero/assets"
