@@ -57,7 +57,7 @@ docker run --rm -v $PWD/my_submission.zip:/sub.zip parc2026 \
 なお、本配布環境の Docker は **CPU 構成**（`ubuntu:22.04` + `torch 2.11.0+cpu`）である。
 本番の採点は GPU コンテナ（CUDA 13.0 ベース）で実施されるため、Python の版と評価側
 ライブラリのピンは同一であるが、CUDA まわりは異なる。詳細および本番相当（GPU）での
-確認方法は[本番採点環境](#本番採点環境)を参照すること。
+確認方法は[採点環境](#採点環境)を参照すること。
 
 ## 2. 評価を回す
 
@@ -102,7 +102,7 @@ python validate_submission.py my_submission.zip --static   # 静的検査のみ�
 | `POST /reset` | エピソード開始（`instruction`, `seed` を JSON で受け取る） |
 | `POST /act` | 観測（msgpack）→ action を返す。**float32 shape (7,)** `[dx, dy, dz, droll, dpitch, dyaw, gripper]` |
 
-## 本番採点環境
+## 採点環境
 
 本番の採点は **GPU コンテナ**上で実施される。構成は次のとおりである。
 
@@ -128,7 +128,7 @@ huggingface_hub==1.25.1   opencv-python-headless==4.11.0.86  scipy==1.15.3   h5p
 Pillow==12.3.0       matplotlib==3.10.9  einops==0.8.2       hydra-core==1.3.2
 ```
 
-プリインストールされているパッケージの全量は[付録](#付録-本番採点環境のプリインストール一覧)に示す。
+プリインストールされているパッケージの全量は[付録](#付録-採点環境のプリインストール一覧)に示す。
 
 ### requirements.txt の書き方
 
@@ -219,7 +219,7 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 | [tests/](tests/) | ハーネスの単体テスト |
 | [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) | setup.sh が取得する第三者製ソフトのライセンス表記 |
 
-## 付録: 本番採点環境のプリインストール一覧
+## 付録: 採点環境のプリインストール一覧
 
 本番採点イメージのシステム Python 3.10 における `pip list` である。
 `requirements.txt` に書かなかったライブラリは、ここに記載の版が使用される。
