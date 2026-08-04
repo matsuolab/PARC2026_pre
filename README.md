@@ -117,7 +117,7 @@ python validate_submission.py my_submission.zip --static   # 静的検査のみ�
 | PyTorch | **2.11.0+cu130**（`torch.version.cuda` は `13.0`） |
 | Triton | 3.6.0 |
 | NVIDIA ドライバ | R580 系 |
-| レンダリング | `MUJOCO_GL=osmesa`（CPU レンダリング） |
+| レンダリング | `MUJOCO_GL=EGL`（GPU レンダリング） |
 
 評価パイプライン側の主要な依存は次の版で固定されている（提出物からも参照できる）。
 
