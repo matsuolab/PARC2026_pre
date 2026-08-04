@@ -221,8 +221,15 @@ python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 
 ## 付録: 本番採点環境のプリインストール一覧
 
-本番採点イメージのシステム Python 3.10 における `pip list` の全量である。
+本番採点イメージのシステム Python 3.10 における `pip list` である。
 `requirements.txt` に書かなかったライブラリは、ここに記載の版が使用される。
+
+なお、この一覧は評価パイプライン側の依存であり、**GPU イメージにはこれに加えて
+ベースライン実装（pi0.5 / openpi JAX）の依存が焼き込まれている**
+（`jax[cuda12]==0.5.3` / `jaxlib==0.5.3` / `flax==0.10.2` / `orbax-checkpoint==0.11.13` /
+`transformers==4.53.2` およびそれらが引く `nvidia-*-cu12` の wheel 等）。
+イメージ更新に伴って変わりうるため、**自分のモデルに必要な依存は
+`requirements.txt` に明示すること**（イメージ側に入っていることを前提にしない）。
 
 <details>
 <summary>pip list（全量）</summary>
@@ -272,6 +279,6 @@ wheel==0.47.0                       zipp==4.1.0
 
 </details>
 
-> 上記は `nvidia-*-cu12`（CUDA 12 系）を**含まない**。CUDA 12 ビルドの torch を
-> 使用する場合は、必要な `nvidia-*-cu12` を `requirements.txt` に自分で含めること
+> 上記の `nvidia-*` は **CUDA 13 系**（`-cu13` または版番号 13.x）である。CUDA 12 ビルドの
+> torch を使用する場合は、必要な `nvidia-*-cu12` を `requirements.txt` に自分で含めること
 > （[CUDA 12 系の torch を使用する場合の注意](#cuda-12-系の-torch-を使用する場合の注意)）。
